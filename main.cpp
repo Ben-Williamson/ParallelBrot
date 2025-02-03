@@ -5,6 +5,11 @@
 #include <algorithm>
 
 #include <immintrin.h>
+#include <valarray>
+
+#define TRACY_ENABLE
+#include "Tracy.hpp"
+
 
 void print(__m256d vec)
     {
@@ -93,9 +98,10 @@ private:
 public:
     int height;
     int width;
+    double aspect_ratio;
 
     Image(int w, int h):
-        height(h), width(w)
+        height(h), width(w), aspect_ratio((double)h / (double)w)
         {
         rows = new double*[height];
         for (int i = 0; i < height; i++)
@@ -134,6 +140,8 @@ public:
 
     void write_to_file(std::string filename)
         {
+        // ZoneScoped;
+        ZoneScopedNC("write_to_file", tracy::Color::Green);
         std::ofstream ofs("../outputs/" + filename + ".ppm", std::ios_base::out | std::ios_base::binary);
         ofs << "P6\n" << width << ' ' << height << "\n255\n";
 
@@ -142,7 +150,7 @@ public:
         for (auto j = 0u; j < height; ++j)
             for (auto i = 0u; i < width; ++i)
                 {
-                colours.get_colour((int)rows[j][i], &r, &g, &b);
+                colours.get_colour((int)rows[j][i]%255, &r, &g, &b);
 
                 ofs << static_cast<char>(r)
                     << static_cast<char>(g)
@@ -200,9 +208,14 @@ void populate_img(Image* img, double complex_centre, double real_centre,
     }
 
 void populate_img_vectorised(Image* img, double complex_centre, double real_centre,
-                             double complex_range, double aspect_ratio)
+                             double complex_range)
     {
-    double real_range = complex_range / aspect_ratio;
+    // ZoneScoped;
+    ZoneScopedNC("populate_img_vectorised", tracy::Color::PowderBlue);
+
+    int max_iter = 200 * sqrt(3. / complex_range);
+
+    double real_range = complex_range / img->aspect_ratio;
 
     double complex_start = complex_centre + complex_range / 2;
     double complex_end = complex_centre - complex_range / 2;
@@ -234,15 +247,24 @@ void populate_img_vectorised(Image* img, double complex_centre, double real_cent
             __m256d z_real = _mm256_set1_pd(0.);
             __m256d z_imag = _mm256_set1_pd(0.);
 
-            __m256d c_real = _mm256_loadu_pd(&real_values[x]);
+            const __m256d c_real = _mm256_loadu_pd(&real_values[x]);
 
-            __m256d z_real_tmp;
-
-            while (iters < 50)
+            while (iters < max_iter)
                 {
-                z_real_tmp = z_real;
-                z_real = z_real*z_real-z_imag*z_imag + c_real;
-                z_imag = z_real_tmp*z_imag*2. + c_imag;
+                const __m256d z_real_tmp = z_real;
+                z_real = _mm256_sub_pd(
+                    _mm256_mul_pd(z_real, z_real),
+                    _mm256_mul_pd(z_imag, z_imag)
+                );
+
+                z_real = _mm256_add_pd(z_real, c_real);
+
+                z_imag = _mm256_mul_pd(
+                    _mm256_mul_pd(z_real_tmp, z_imag),
+                    _mm256_set1_pd(2.)
+                );
+
+                z_imag = _mm256_add_pd(z_imag, c_imag);
 
                 __m256d abs_vec = _mm256_and_pd(z_real, abs_mask);
                 __m256d cmp_result = _mm256_cmp_pd(abs_vec, threshold, _CMP_GT_OQ);
@@ -251,20 +273,16 @@ void populate_img_vectorised(Image* img, double complex_centre, double real_cent
                 iters++;
                 }
 
-//            _mm256_storeu_pd(&row[x], _mm256_set1_pd((double)iters/50*255));
-
             double z_real_arr[4] = {0};
             double z_imag_arr[4] = {0};
 
             _mm256_storeu_pd(z_real_arr, z_real);
             _mm256_storeu_pd(z_imag_arr, z_imag);
 
-            double z_real_tmp_scalar;
-
             for (int x_scalar = 0; x_scalar < 4; x_scalar++)
                 {
 
-                int scalar_iters = 0;
+                int scalar_iters = iters;
                 double z_real_scalar = z_real_arr[x_scalar];
                 double z_imag_scalar = z_imag_arr[x_scalar];
 
@@ -273,14 +291,14 @@ void populate_img_vectorised(Image* img, double complex_centre, double real_cent
                         abs(z_imag_scalar) < 2.
                         )
                     {
-                    z_real_tmp_scalar = z_real_scalar;
+                    double z_real_tmp_scalar = z_real_scalar;
                     z_real_scalar = z_real_scalar*z_real_scalar - z_imag_scalar*z_imag_scalar + real_values[x+x_scalar];
                     z_imag_scalar = 2*z_real_tmp_scalar*z_imag_scalar + c_imag_scalar;
 
-                    if (scalar_iters > 50) break;
+                    if (scalar_iters > max_iter) break;
                     scalar_iters++;
                     }
-                row[x+x_scalar] = (double)scalar_iters/50*255;
+                row[x+x_scalar] = (double)scalar_iters;
                 }
             }
         }
@@ -288,22 +306,28 @@ void populate_img_vectorised(Image* img, double complex_centre, double real_cent
 
 int main()
     {
-    Image img(1920, 1080);
-
-    double aspect_ratio = 1080. / 1920.;
-
 //    0.743643887037151 + 0.131825904205330i
-    double complex_centre = 0.0091976760;
-    double real_centre = 0.2766433120;
+    // double complex_centre = 0.0091976760;
+    // double real_centre = 0.2766433120;
+
+    // double complex_centre = 1.;
+    // double real_centre = 0.;
+
+    double complex_centre = 0.00000000000000000278793706563379402178294753790944364927085054500163081379043930650189386849765202169477470552201325772332454726999999995;
+    double real_centre =  -1.74995768370609350360221450607069970727110579726252077930242837820286008082972804887218672784431700831100544507655659531379747541999999995;
 
     double complex_range = 3;
 
-    for (int i = 0; i < 100; i++)
+#pragma omp parallel for schedule(dynamic,1)
+    for (int i = 0; i < 250; i++)
         {
         std::cout << i << std::endl;
-        populate_img_vectorised(&img, complex_centre, real_centre, complex_range, aspect_ratio);
+        // Image img(1920, 1080);
+
+        Image img(600, 400);
+
+        populate_img_vectorised(&img, complex_centre, real_centre, complex_range * std::pow(0.9, i));
         img.write_to_file(std::to_string(i));
-        complex_range *= 0.9;
         }
     return 0;
     }
