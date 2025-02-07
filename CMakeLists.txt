@@ -14,17 +14,23 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(tracy)
 
+find_package(glfw3 REQUIRED)
+
 # Ensure Tracy's headers are included
 add_executable(ParallelBrot main.cpp)
+add_executable(GPUBrot opencl-main.cpp)
+add_executable(GLBrot opengl-main.cpp)
 
 # Add Tracy's "public" include directory
 target_include_directories(ParallelBrot PRIVATE ${tracy_SOURCE_DIR}/public/tracy)
-
-# Define TRACY_ENABLE at compile time
-target_compile_definitions(ParallelBrot PRIVATE TRACY_ENABLE)
-
-# **Link the Tracy client library**
+#target_compile_definitions(ParallelBrot PRIVATE TRACY_ENABLE)
 target_link_libraries(ParallelBrot PRIVATE TracyClient)
 
+target_include_directories(GPUBrot PRIVATE ${tracy_SOURCE_DIR}/public/tracy)
+#target_compile_definitions(GPUBrot PRIVATE TRACY_ENABLE)
+target_link_libraries(GPUBrot PRIVATE TracyClient)
+
+target_link_libraries(GLBrot PRIVATE glfw)
+
 # Enable necessary flags for OpenMP and architecture optimizations
-set(CMAKE_CXX_FLAGS "-march=native -fopenmp")
+set(CMAKE_CXX_FLAGS "-march=native -fopenmp -lOpenCL -lglfw -lGLEW -lGL")

@@ -1,7 +1,5 @@
 #include <iostream>
 #include <fstream>
-
-#include <iostream>
 #include <algorithm>
 
 #include <immintrin.h>
@@ -213,7 +211,9 @@ void populate_img_vectorised(Image* img, double complex_centre, double real_cent
     // ZoneScoped;
     ZoneScopedNC("populate_img_vectorised", tracy::Color::PowderBlue);
 
-    int max_iter = 200 * sqrt(3. / complex_range);
+    int max_iter = 100 * sqrt(3. / complex_range);
+
+    // int max_iter = 200;
 
     double real_range = complex_range / img->aspect_ratio;
 
